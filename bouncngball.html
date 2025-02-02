@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Ball Bouncing in a Spinning Hexagon</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #222; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <script>
+    // Get the canvas and set its size to fill the window
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // Update canvas size on window resize
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      hexagon.cx = canvas.width / 2;
+      hexagon.cy = canvas.height / 2;
+      hexagon.radius = Math.min(canvas.width, canvas.height) / 3;
+    });
+
+    // Simulation parameters
+    const gravity = 0.5;             // Acceleration due to gravity (pixels per frame^2)
+    const restitution = 0.9;         // Energy retention in the normal direction (0-1)
+    const frictionCoefficient = 0.98; // Friction on the tangential component at collision
+    const airFriction = 0.999;       // Slight damping every frame
+
+    // Define the spinning hexagon (centered on the canvas)
+    const hexagon = {
+      cx: canvas.width / 2,
+      cy: canvas.height / 2,
+      radius: Math.min(canvas.width, canvas.height) / 3,
+      rotation: 0,                 // Initial rotation angle (radians)
+      angularSpeed: 0.01           // Rotation speed in radians per frame
+    };
+
+    // Define the ball
+    const ball = {
+      x: hexagon.cx,
+      y: hexagon.cy - 50,  // Start slightly above the center
+      vx: 3,             // Initial horizontal velocity
+      vy: 0,             // Initial vertical velocity
+      radius: 10         // Radius of the ball
+    };
+
+    // Returns an array of 6 vertices for the hexagon given center, radius, and rotation.
+    function getHexagonVertices(cx, cy, radius, rotation) {
+      const vertices = [];
+      for (let i = 0; i < 6; i++) {
+        const angle = rotation + i * Math.PI / 3; // 60° increments
+        const x = cx + radius * Math.cos(angle);
+        const y = cy + radius * Math.sin(angle);
+        vertices.push({ x, y });
+      }
+      return vertices;
+    }
+
+    // Checks for collision between a circle (ball) and a line segment (edge A-B).
+    // Returns an object with a collision flag, the closest point on the segment, etc.
+    function circleLineCollision(ball, A, B) {
+      const ABx = B.x - A.x;
+      const ABy = B.y - A.y;
+      const len2 = ABx * ABx + ABy * ABy;
+      // Compute t so that A + t*(B-A) is the projection of the ball’s center onto the line.
+      let t = ((ball.x - A.x) * ABx + (ball.y - A.y) * ABy) / len2;
+      t = Math.max(0, Math.min(1, t)); // Clamp t to lie within the segment
+      const closestX = A.x + t * ABx;
+      const closestY = A.y + t * ABy;
+      const dx = ball.x - closestX;
+      const dy = ball.y - closestY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      return {
+        collision: dist < ball.radius,
+        closest: { x: closestX, y: closestY },
+        distance: dist,
+        dx, dy
+      };
+    }
+
+    // Update the physics and check for collisions
+    function update() {
+      // Update the hexagon’s rotation
+      hexagon.rotation += hexagon.angularSpeed;
+
+      // Apply gravity to the ball
+      ball.vy += gravity;
+
+      // Update ball position
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+
+      // Compute the current hexagon vertices
+      const vertices = getHexagonVertices(hexagon.cx, hexagon.cy, hexagon.radius, hexagon.rotation);
+
+      // Loop over each edge of the hexagon to check for collision
+      for (let i = 0; i < 6; i++) {
+        const A = vertices[i];
+        const B = vertices[(i + 1) % 6];
+        const colData = circleLineCollision(ball, A, B);
+        if (colData.collision) {
+          // Calculate collision normal (points from the edge toward the ball)
+          let nx = colData.dx;
+          let ny = colData.dy;
+          const d = Math.sqrt(nx * nx + ny * ny);
+          if (d === 0) {
+            // If the ball’s center exactly equals the closest point, use a fallback normal (perpendicular to the edge)
+            const ex = B.x - A.x;
+            const ey = B.y - A.y;
+            nx = -ey;
+            ny = ex;
+            const mag = Math.sqrt(nx * nx + ny * ny);
+            nx /= mag;
+            ny /= mag;
+          } else {
+            nx /= d;
+            ny /= d;
+          }
+
+          // Move the ball out of the wall by the penetration depth
+          const penetration = ball.radius - d;
+          ball.x += nx * penetration;
+          ball.y += ny * penetration;
+
+          // Compute the wall’s velocity at the collision point.
+          // For a rotating object, v = ω × r. In 2D, this is:
+          // v_wall.x = -ω * (P.y - center.y)
+          // v_wall.y =  ω * (P.x - center.x)
+          const rx = colData.closest.x - hexagon.cx;
+          const ry = colData.closest.y - hexagon.cy;
+          const vWall = {
+            x: -hexagon.angularSpeed * ry,
+            y:  hexagon.angularSpeed * rx
+          };
+
+          // Compute the ball’s velocity relative to the wall
+          const relVx = ball.vx - vWall.x;
+          const relVy = ball.vy - vWall.y;
+
+          // Decompose the relative velocity into normal and tangential components
+          const dot = relVx * nx + relVy * ny;
+          const vNormalX = dot * nx;
+          const vNormalY = dot * ny;
+          const vTangentX = relVx - vNormalX;
+          const vTangentY = relVy - vNormalY;
+
+          // Reflect the normal component (with restitution) and apply friction to the tangential part
+          const newVNormalX = -restitution * vNormalX;
+          const newVNormalY = -restitution * vNormalY;
+          const newVTangentX = frictionCoefficient * vTangentX;
+          const newVTangentY = frictionCoefficient * vTangentY;
+
+          // The new relative velocity after collision
+          const newRelVx = newVNormalX + newVTangentX;
+          const newRelVy = newVNormalY + newVTangentY;
+
+          // Update the ball’s absolute velocity by adding back the wall’s velocity
+          ball.vx = vWall.x + newRelVx;
+          ball.vy = vWall.y + newRelVy;
+        }
+      }
+
+      // Apply slight air friction (damping)
+      ball.vx *= airFriction;
+      ball.vy *= airFriction;
+    }
+
+    // Draw the hexagon and the ball
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw the hexagon
+      const vertices = getHexagonVertices(hexagon.cx, hexagon.cy, hexagon.radius, hexagon.rotation);
+      ctx.beginPath();
+      ctx.moveTo(vertices[0].x, vertices[0].y);
+      for (let i = 1; i < vertices.length; i++) {
+        ctx.lineTo(vertices[i].x, vertices[i].y);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Draw the ball
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+      ctx.fillStyle = '#f00';
+      ctx.fill();
+    }
+
+    // The animation loop
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    // Start the animation
+    loop();
+  </script>
+</body>
+</html>

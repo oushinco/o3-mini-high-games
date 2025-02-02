@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Space Shooter Game</title>
+  <style>
+    /* Remove default margin and hide scrollbars */
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #000;
+    }
+    /* Center the canvas */
+    canvas {
+      display: block;
+      margin: 0 auto;
+      background-color: #000;
+      border: 2px solid #333;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <script>
+    // Get the canvas and context
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Game dimensions
+    const WIDTH = canvas.width;
+    const HEIGHT = canvas.height;
+
+    // Spaceship settings
+    const shipWidth = 50;
+    const shipHeight = 40;
+    let shipX = (WIDTH - shipWidth) / 2;
+    const shipY = HEIGHT - shipHeight - 10;
+    const shipSpeed = 5;
+    let movingLeft = false;
+    let movingRight = false;
+
+    // Bullet settings
+    const bulletWidth = 5;
+    const bulletHeight = 10;
+    const bulletSpeed = 7;
+    let bullets = []; // Array to store bullet objects
+
+    // Enemy settings
+    const enemyWidth = 40;
+    const enemyHeight = 30;
+    const enemySpeed = 2;
+    let enemies = []; // Array to store enemy objects
+
+    // Listen for key presses
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft") {
+        movingLeft = true;
+      } else if (e.key === "ArrowRight") {
+        movingRight = true;
+      } else if (e.key === " ") {
+        // Create a bullet when the spacebar is pressed.
+        bullets.push({
+          x: shipX + shipWidth / 2 - bulletWidth / 2,
+          y: shipY
+        });
+      }
+    });
+
+    document.addEventListener("keyup", (e) => {
+      if (e.key === "ArrowLeft") {
+        movingLeft = false;
+      } else if (e.key === "ArrowRight") {
+        movingRight = false;
+      }
+    });
+
+    // Function to spawn an enemy at a random horizontal position
+    function spawnEnemy() {
+      const enemyX = Math.random() * (WIDTH - enemyWidth);
+      const enemyY = -enemyHeight;  // start just above the canvas
+      enemies.push({ x: enemyX, y: enemyY });
+    }
+
+    let gameOver = false;
+
+    // Main game loop
+    function gameLoop() {
+      if (gameOver) return;
+
+      // Clear the canvas
+      ctx.clearRect(0, 0, WIDTH, HEIGHT);
+
+      // --- Update Game State ---
+
+      // Update spaceship position based on key presses
+      if (movingLeft) {
+        shipX -= shipSpeed;
+        if (shipX < 0) shipX = 0;
+      }
+      if (movingRight) {
+        shipX += shipSpeed;
+        if (shipX > WIDTH - shipWidth) shipX = WIDTH - shipWidth;
+      }
+
+      // Draw the spaceship (green rectangle)
+      ctx.fillStyle = "green";
+      ctx.fillRect(shipX, shipY, shipWidth, shipHeight);
+
+      // Update bullet positions (move them upward) and draw them
+      for (let i = 0; i < bullets.length; i++) {
+        bullets[i].y -= bulletSpeed;
+        ctx.fillStyle = "white";
+        ctx.fillRect(bullets[i].x, bullets[i].y, bulletWidth, bulletHeight);
+      }
+      // Remove bullets that have gone off-screen
+      bullets = bullets.filter(bullet => bullet.y > -bulletHeight);
+
+      // Randomly spawn enemies (roughly 2 per second)
+      if (Math.random() < 0.03) {
+        spawnEnemy();
+      }
+
+      // Update enemy positions (move them downward) and draw them
+      for (let i = 0; i < enemies.length; i++) {
+        enemies[i].y += enemySpeed;
+        ctx.fillStyle = "red";
+        ctx.fillRect(enemies[i].x, enemies[i].y, enemyWidth, enemyHeight);
+      }
+      // Remove enemies that have moved off-screen
+      enemies = enemies.filter(enemy => enemy.y < HEIGHT);
+
+      // --- Collision Detection ---
+
+      // Check for collisions between bullets and enemies
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const bullet = bullets[i];
+          const enemy = enemies[j];
+          if (bullet.x < enemy.x + enemyWidth &&
+              bullet.x + bulletWidth > enemy.x &&
+              bullet.y < enemy.y + enemyHeight &&
+              bullet.y + bulletHeight > enemy.y) {
+            // Collision detected: remove both bullet and enemy
+            bullets.splice(i, 1);
+            enemies.splice(j, 1);
+            break;
+          }
+        }
+      }
+
+      // Check for collisions between the spaceship and enemies
+      for (let i = 0; i < enemies.length; i++) {
+        const enemy = enemies[i];
+        if (shipX < enemy.x + enemyWidth &&
+            shipX + shipWidth > enemy.x &&
+            shipY < enemy.y + enemyHeight &&
+            shipY + shipHeight > enemy.y) {
+          gameOver = true;
+          alert("Game Over!");
+          return;
+        }
+      }
+
+      // Loop the game
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Start the game loop
+    gameLoop();
+  </script>
+</body>
+</html>

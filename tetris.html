@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Tetris</title>
+  <style>
+    body {
+      background: #222;
+      color: #fff;
+      text-align: center;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      margin-bottom: 10px;
+    }
+    canvas {
+      border: 2px solid #fff;
+      background: #000;
+      display: block;
+      margin: 0 auto;
+    }
+    p {
+      font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <h1>Tetris</h1>
+  <canvas id="tetris" width="300" height="600"></canvas>
+  <p>Score: <span id="score">0</span></p>
+
+  <script>
+    // Get canvas and context
+    const canvas = document.getElementById('tetris');
+    const ctx = canvas.getContext('2d');
+
+    // Grid dimensions (columns x rows) and block size (in pixels)
+    const gridWidth = 10;
+    const gridHeight = 20;
+    const blockSize = 30; // 300px/10 and 600px/20
+
+    // Create a 2D grid filled with 0 (empty)
+    let grid = [];
+    for (let r = 0; r < gridHeight; r++) {
+      grid[r] = new Array(gridWidth).fill(0);
+    }
+
+    // Colors: index 0 is empty, then each piece gets its own color.
+    const colors = [
+      'black',  // 0 = empty
+      'cyan',   // 1 = I
+      'yellow', // 2 = O
+      'purple', // 3 = T
+      'green',  // 4 = S
+      'red',    // 5 = Z
+      'blue',   // 6 = J
+      'orange'  // 7 = L
+    ];
+
+    // Define Tetromino shapes and their rotations.
+    // Each shape is defined as an array of rotations.
+    // In each rotation, the piece is represented by an array of [x, y] offsets
+    // relative to the piece’s top-left position.
+    const SHAPES = [
+      { // I piece
+        rotations: [
+          [[0,1], [1,1], [2,1], [3,1]],
+          [[2,0], [2,1], [2,2], [2,3]]
+        ],
+        color: 1
+      },
+      { // O piece
+        rotations: [
+          [[1,0], [2,0], [1,1], [2,1]]
+        ],
+        color: 2
+      },
+      { // T piece
+        rotations: [
+          [[1,0], [0,1], [1,1], [2,1]],
+          [[1,0], [1,1], [2,1], [1,2]],
+          [[0,1], [1,1], [2,1], [1,2]],
+          [[1,0], [0,1], [1,1], [1,2]]
+        ],
+        color: 3
+      },
+      { // S piece
+        rotations: [
+          [[1,0], [2,0], [0,1], [1,1]],
+          [[1,0], [1,1], [2,1], [2,2]]
+        ],
+        color: 4
+      },
+      { // Z piece
+        rotations: [
+          [[0,0], [1,0], [1,1], [2,1]],
+          [[2,0], [1,1], [2,1], [1,2]]
+        ],
+        color: 5
+      },
+      { // J piece
+        rotations: [
+          [[0,0], [0,1], [1,1], [2,1]],
+          [[1,0], [2,0], [1,1], [1,2]],
+          [[0,1], [1,1], [2,1], [2,2]],
+          [[1,0], [1,1], [0,2], [1,2]]
+        ],
+        color: 6
+      },
+      { // L piece
+        rotations: [
+          [[2,0], [0,1], [1,1], [2,1]],
+          [[1,0], [1,1], [1,2], [2,2]],
+          [[0,1], [1,1], [2,1], [0,2]],
+          [[0,0], [1,0], [1,1], [1,2]]
+        ],
+        color: 7
+      }
+    ];
+
+    // Define a Piece class to hold the current tetromino data.
+    class Piece {
+      constructor(shape) {
+        this.shape = shape;
+        this.rotation = 0;
+        // Starting position: x = 3 (roughly centered), y = 0
+        this.x = 3;
+        this.y = 0;
+      }
+      
+      // Returns an array of grid cells occupied by the piece in its current rotation.
+      getCells() {
+        const cells = [];
+        const shapeCells = this.shape.rotations[this.rotation];
+        for (let cell of shapeCells) {
+          const cellX = this.x + cell[0];
+          const cellY = this.y + cell[1];
+          cells.push([cellX, cellY]);
+        }
+        return cells;
+      }
+      
+      rotate() {
+        this.rotation = (this.rotation + 1) % this.shape.rotations.length;
+      }
+      
+      rotateBack() {
+        this.rotation = (this.rotation - 1 + this.shape.rotations.length) % this.shape.rotations.length;
+      }
+    }
+
+    // Function to choose a random piece
+    function randomPiece() {
+      const index = Math.floor(Math.random() * SHAPES.length);
+      return new Piece(SHAPES[index]);
+    }
+
+    // Initialize current and next pieces
+    let currentPiece = randomPiece();
+    let nextPiece = randomPiece();
+    let score = 0;
+
+    // Checks if a piece (optionally offset) is in a valid position (within bounds and not overlapping locked cells)
+    function isValidPosition(piece, offsetX = 0, offsetY = 0) {
+      const cells = piece.getCells();
+      for (let [x, y] of cells) {
+        const newX = x + offsetX;
+        const newY = y + offsetY;
+        if (newX < 0 || newX >= gridWidth || newY >= gridHeight) {
+          return false;
+        }
+        // Allow cells above the grid (newY < 0) without checking grid
+        if (newY >= 0 && grid[newY][newX] !== 0) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // Lock the piece into the grid (i.e. mark its cells as filled with the piece’s color)
+    function lockPiece(piece) {
+      const cells = piece.getCells();
+      for (let [x, y] of cells) {
+        if (y >= 0) { // ignore cells above the grid
+          grid[y][x] = piece.shape.color;
+        }
+      }
+    }
+
+    // Clear full rows from the grid and update the score
+    function clearLines() {
+      let linesCleared = 0;
+      for (let y = gridHeight - 1; y >= 0; y--) {
+        if (grid[y].every(cell => cell !== 0)) {
+          grid.splice(y, 1);
+          grid.unshift(new Array(gridWidth).fill(0));
+          linesCleared++;
+          y++; // recheck this row after shifting
+        }
+      }
+      if (linesCleared > 0) {
+        score += linesCleared * 10;
+        document.getElementById('score').innerText = score;
+      }
+    }
+
+    // Draw the grid (locked cells)
+    function drawGrid() {
+      for (let y = 0; y < gridHeight; y++) {
+        for (let x = 0; x < gridWidth; x++) {
+          ctx.fillStyle = colors[grid[y][x]];
+          ctx.fillRect(x * blockSize, y * blockSize, blockSize, blockSize);
+          ctx.strokeStyle = 'grey';
+          ctx.strokeRect(x * blockSize, y * blockSize, blockSize, blockSize);
+        }
+      }
+    }
+
+    // Draw the current moving piece
+    function drawPiece(piece) {
+      const cells = piece.getCells();
+      ctx.fillStyle = colors[piece.shape.color];
+      for (let [x, y] of cells) {
+        if (y >= 0) {
+          ctx.fillRect(x * blockSize, y * blockSize, blockSize, blockSize);
+          ctx.strokeStyle = 'grey';
+          ctx.strokeRect(x * blockSize, y * blockSize, blockSize, blockSize);
+        }
+      }
+    }
+
+    // Game loop variables
+    let dropCounter = 0;
+    const dropInterval = 1000; // milliseconds between automatic drops
+    let lastTime = 0;
+
+    // Main update loop using requestAnimationFrame
+    function update(time = 0) {
+      const deltaTime = time - lastTime;
+      lastTime = time;
+      dropCounter += deltaTime;
+      if (dropCounter > dropInterval) {
+        // Try to move the piece down by 1
+        if (isValidPosition(currentPiece, 0, 1)) {
+          currentPiece.y++;
+        } else {
+          // If not valid, lock the piece and spawn a new one
+          lockPiece(currentPiece);
+          clearLines();
+          currentPiece = nextPiece;
+          nextPiece = randomPiece();
+          // Check for game over: if the new piece is immediately invalid, end the game.
+          if (!isValidPosition(currentPiece)) {
+            alert("Game Over! Score: " + score);
+            // Reset grid and score
+            grid = [];
+            for (let r = 0; r < gridHeight; r++) {
+              grid[r] = new Array(gridWidth).fill(0);
+            }
+            score = 0;
+            document.getElementById('score').innerText = score;
+          }
+        }
+        dropCounter = 0;
+      }
+      
+      // Clear canvas and redraw grid and piece
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGrid();
+      drawPiece(currentPiece);
+      
+      requestAnimationFrame(update);
+    }
+    requestAnimationFrame(update);
+
+    // Handle keyboard input for moving and rotating the piece
+    document.addEventListener('keydown', event => {
+      if (event.key === 'ArrowLeft') {
+        if (isValidPosition(currentPiece, -1, 0)) {
+          currentPiece.x--;
+        }
+      } else if (event.key === 'ArrowRight') {
+        if (isValidPosition(currentPiece, 1, 0)) {
+          currentPiece.x++;
+        }
+      } else if (event.key === 'ArrowDown') {
+        if (isValidPosition(currentPiece, 0, 1)) {
+          currentPiece.y++;
+        }
+      } else if (event.key === 'ArrowUp') {
+        currentPiece.rotate();
+        if (!isValidPosition(currentPiece)) {
+          currentPiece.rotateBack();
+        }
+      }
+    });
+  </script>
+</body>
+</html>
